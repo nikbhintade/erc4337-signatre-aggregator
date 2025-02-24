@@ -4,13 +4,27 @@ pragma solidity 0.8.28;
 import {BLSAccount} from "src/BLSAccount.sol";
 
 import {EntryPoint} from "account-abstraction/core/EntryPoint.sol";
-import {_parseValidationData, ValidationData} from "account-abstraction/core/Helpers.sol";
+import {_parseValidationData, _packValidationData, ValidationData} from "account-abstraction/core/Helpers.sol";
+import {PackedUserOperation} from "account-abstraction/interfaces/PackedUserOperation.sol";
 
 import {BLS} from "solady/utils/ext/ithaca/BLS.sol";
 
-import {Test} from "forge-std/Test.sol";
+import {Test, console2 as console} from "forge-std/Test.sol";
 
 contract BLSAccountTest is Test {
+    BLSAccount private s_blsAccount;
+    EntryPoint private s_entryPoint;
+    address private s_aggregator;
+
+    function setUp() public {
+        BLS.G1Point memory pubKey = createPublicKey();
+        s_entryPoint = new EntryPoint();
+        s_aggregator = makeAddr("aggregator");
+
+        s_blsAccount = new BLSAccount(s_aggregator, s_entryPoint, pubKey);
+        vm.deal(address(s_blsAccount), 100 ether);
+    }
+
     function G1_GENERATOR() internal pure returns (BLS.G1Point memory) {
         return BLS.G1Point(
             bytes32(uint256(31827880280837800241567138048534752271)),
@@ -39,7 +53,34 @@ contract BLSAccountTest is Test {
 
         BLSAccount blsAccount = new BLSAccount(aggregator, entryPoint, pubKey);
 
-        assertEq(entryPoint, blsAccount.entryPoint());
-        assertEq(keccak256(pubKey), keccak256(blsAccount.getPubKey()));
+        assertEq(address(entryPoint), address(blsAccount.entryPoint()));
+        assertEq(keccak256(abi.encode(pubKey)), keccak256(abi.encode(blsAccount.getPubKey())));
+    }
+
+    function testValidationReturnsAggregator() public {
+        PackedUserOperation memory userOp = PackedUserOperation(
+            address(s_blsAccount),
+            0,
+            bytes(vm.randomBytes(10)),
+            bytes(vm.randomBytes(10)),
+            bytes32(0),
+            0,
+            bytes32(0),
+            bytes(vm.randomBytes(10)),
+            bytes(vm.randomBytes(10))
+        );
+
+        bytes32 userOpHash = bytes32(vm.randomBytes(32));
+
+        vm.prank(address(s_entryPoint));
+        uint256 validationData = s_blsAccount.validateUserOp(userOp, userOpHash, vm.randomUint());
+
+        ValidationData memory parsedValidationData = _parseValidationData(validationData);
+        uint48 expectedTimestamp = 0;
+
+        assertEq(parsedValidationData.aggregator, s_aggregator);
+        assertEq(parsedValidationData.validAfter, expectedTimestamp);
+
+        assertEq(parsedValidationData.validUntil, type(uint48).max);
     }
 }
