@@ -9,19 +9,23 @@ import {PackedUserOperation} from "account-abstraction/interfaces/PackedUserOper
 
 import {BLS} from "solady/utils/ext/ithaca/BLS.sol";
 
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+
 import {Test, console2 as console} from "forge-std/Test.sol";
 
 contract BLSAccountTest is Test {
     BLSAccount private s_blsAccount;
     EntryPoint private s_entryPoint;
     address private s_aggregator;
+    address private s_owner;
 
     function setUp() public {
         BLS.G1Point memory pubKey = createPublicKey();
         s_entryPoint = new EntryPoint();
         s_aggregator = makeAddr("aggregator");
+        s_owner = makeAddr("s_owner");
 
-        s_blsAccount = new BLSAccount(s_aggregator, s_entryPoint, pubKey);
+        s_blsAccount = new BLSAccount(s_owner, s_aggregator, s_entryPoint, pubKey);
         vm.deal(address(s_blsAccount), 100 ether);
     }
 
@@ -50,8 +54,9 @@ contract BLSAccountTest is Test {
         BLS.G1Point memory pubKey = createPublicKey();
         EntryPoint entryPoint = new EntryPoint();
         address aggregator = makeAddr("aggregator");
+        address owner = makeAddr("owner");
 
-        BLSAccount blsAccount = new BLSAccount(aggregator, entryPoint, pubKey);
+        BLSAccount blsAccount = new BLSAccount(owner, aggregator, entryPoint, pubKey);
 
         assertEq(address(entryPoint), address(blsAccount.entryPoint()));
         assertEq(keccak256(abi.encode(pubKey)), keccak256(abi.encode(blsAccount.getPubKey())));
@@ -82,5 +87,31 @@ contract BLSAccountTest is Test {
         assertEq(parsedValidationData.validAfter, expectedTimestamp);
 
         assertEq(parsedValidationData.validUntil, type(uint48).max);
+    }
+
+    function testChangePubKeyEventAndAccess() public {
+        BLS.G1Point memory newPubKey = createPublicKey();
+
+        // --------------------
+        vm.expectEmit(false, false, false, true, address(s_blsAccount));
+        emit BLSAccount.PubKeyChanged(s_blsAccount.getPubKey(), newPubKey);
+        vm.prank(s_owner);
+        s_blsAccount.changePubKey(newPubKey);
+        // --------------------
+
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
+        s_blsAccount.changePubKey(newPubKey);
+    }
+
+    function testChangeAggregatorEventAndAccess() public {
+        address newAggregator = makeAddr("newAggregator");
+
+        vm.expectEmit(false, false, false, true, address(s_blsAccount));
+        emit BLSAccount.AggregatorChanged(s_blsAccount.getAggregator(), newAggregator);
+        vm.prank(s_owner);
+        s_blsAccount.changeAggregator(newAggregator);
+
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
+        s_blsAccount.changeAggregator(newAggregator);
     }
 }
