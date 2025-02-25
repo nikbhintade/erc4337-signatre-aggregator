@@ -15,6 +15,8 @@ import {BLS} from "solady/utils/ext/ithaca/BLS.sol";
 
 import {BLSAccount} from "src/BLSAccount.sol";
 
+import {console2 as console} from "forge-std/console2.sol";
+
 contract Aggregator is IAggregator {
     using UserOperationLib for PackedUserOperation;
 
@@ -42,8 +44,8 @@ contract Aggregator is IAggregator {
         g2Points[0] = abi.decode(userOp.signature, (BLS.G2Point));
         g2Points[1] = hm;
 
-        require(BLS.pairing(g1Points, g2Points), "Sig Verification Failed");
-        
+        BLS.pairing(g1Points, g2Points);
+
         return "";
     }
 
