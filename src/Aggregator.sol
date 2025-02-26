@@ -53,7 +53,31 @@ contract Aggregator is IAggregator {
         external
         view
         returns (bytes memory aggregatedSignature)
-    {}
+    {
+        (BLS.G2Point memory aggregatedSignatureG2) = abi.decode(userOps[0].signature, (BLS.G2Point));
 
-    function validateSignatures(PackedUserOperation[] calldata userOps, bytes calldata signature) external view {}
+        for (uint256 i = 1; i < userOps.length; i++) {
+            (BLS.G2Point memory userOpSignature) = abi.decode(userOps[i].signature, (BLS.G2Point));
+            aggregatedSignatureG2 = BLS.add(aggregatedSignatureG2, userOpSignature);
+        }
+
+        return abi.encode(aggregatedSignatureG2);
+    }
+
+    function validateSignatures(PackedUserOperation[] calldata userOps, bytes calldata signature) external view {
+        // create g1 & g2 array of userOps.length + 1
+        uint256 len = userOps.length;
+
+        BLS.G1Point[] memory g1 = new BLS.G1Point[](len + 1);
+        BLS.G2Point[] memory g2 = new BLS.G2Point[](len + 1);
+
+        for (uint256 i = 0; i < len; i++) {
+            g1[i] = BLSAccount(userOps[i].sender).getPubKey();
+            (g2[i]) = abi.decode(userOps[i].signature, (BLS.G2Point));
+        }
+        g1[len] = NEGATED_G1_GENERATOR;
+        (g2[len]) = abi.decode(signature, (BLS.G2Point));
+
+        BLS.pairing(g1, g2);
+    }
 }

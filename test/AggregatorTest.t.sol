@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {Test} from "forge-std/Test.sol";
 
 import {PackedUserOperation} from "account-abstraction/interfaces/PackedUserOperation.sol";
+import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {EntryPoint} from "account-abstraction/core/EntryPoint.sol";
 import {UserOperationLib} from "account-abstraction/core/UserOperationLib.sol";
 
@@ -41,6 +42,28 @@ contract AggregatorTest is Test {
 
     function _u(uint256 fp) internal pure returns (bytes32) {
         return bytes32(fp);
+    }
+
+    function encode(PackedUserOperation memory userOp) internal pure returns (bytes memory ret) {
+        address sender = userOp.sender;
+        uint256 nonce = userOp.nonce;
+        bytes32 hashInitCode = keccak256(userOp.initCode);
+        bytes32 hashCallData = keccak256(userOp.callData);
+        bytes32 accountGasLimits = userOp.accountGasLimits;
+        uint256 preVerificationGas = userOp.preVerificationGas;
+        bytes32 gasFees = userOp.gasFees;
+        bytes32 hashPaymasterAndData = keccak256(userOp.paymasterAndData);
+
+        return abi.encode(
+            sender,
+            nonce,
+            hashInitCode,
+            hashCallData,
+            accountGasLimits,
+            preVerificationGas,
+            gasFees,
+            hashPaymasterAndData
+        );
     }
 
     function setUp() public {
@@ -93,23 +116,148 @@ contract AggregatorTest is Test {
         s_aggregator.validateUserOpSignature(userOp);
     }
 
-    function encode(
-        PackedUserOperation memory userOp
-    ) internal pure returns (bytes memory ret) {
-        address sender = userOp.sender;
-        uint256 nonce = userOp.nonce;
-        bytes32 hashInitCode = keccak256(userOp.initCode);
-        bytes32 hashCallData = keccak256(userOp.callData);
-        bytes32 accountGasLimits = userOp.accountGasLimits;
-        uint256 preVerificationGas = userOp.preVerificationGas;
-        bytes32 gasFees = userOp.gasFees;
-        bytes32 hashPaymasterAndData = keccak256(userOp.paymasterAndData);
+    function testAggregatorGenerateAggSignature() public {
+        // iterations
+        uint256 iterations = vm.randomUint() % 15;
 
-        return abi.encode(
-            sender, nonce,
-            hashInitCode, hashCallData,
-            accountGasLimits, preVerificationGas, gasFees,
-            hashPaymasterAndData
+        // create userOps array
+        PackedUserOperation[] memory userOps = new PackedUserOperation[](iterations);
+
+        // declare aggSig variable
+        BLS.G2Point memory aggSig = BLS.G2Point(
+            bytes32(""), bytes32(""), bytes32(""), bytes32(""), bytes32(""), bytes32(""), bytes32(""), bytes32("")
         );
+
+        // for loop
+
+        for (uint256 i = 0; i < iterations; i++) {
+            // generate private key
+            uint256 privateKey = vm.randomUint();
+
+            // generate g1, g2, & bytes32 array;
+            BLS.G1Point[] memory g1 = new BLS.G1Point[](1);
+            BLS.G2Point[] memory g2 = new BLS.G2Point[](1);
+            bytes32[] memory scalars = new bytes32[](1);
+
+            g1[0] = G1_GENERATOR();
+            scalars[0] = bytes32(privateKey);
+
+            // generate public key
+            BLS.G1Point memory pubKey = BLS.msm(g1, scalars);
+
+            BLSAccount blsAccount = new BLSAccount(vm.randomAddress(), vm.randomAddress(), s_entryPoint, pubKey);
+            // create userOp
+            userOps[i] = PackedUserOperation({
+                sender: address(blsAccount),
+                nonce: 0,
+                initCode: bytes(""),
+                callData: bytes(""),
+                accountGasLimits: bytes32(0),
+                preVerificationGas: 0,
+                gasFees: bytes32(0),
+                paymasterAndData: bytes(""),
+                signature: bytes("")
+            });
+
+            // generate message
+            bytes memory message = encode(userOps[i]);
+
+            // generate signature
+            g2[0] = BLS.hashToG2(message);
+            BLS.G2Point memory signature = BLS.msm(g2, scalars);
+
+            // set signature
+            userOps[i].signature = abi.encode(signature);
+
+            // aggregate signature
+            aggSig = BLS.add(aggSig, signature);
+        }
+
+        // TESTING aggregateSignatures function of Aggregator
+        // call Aggregator
+        bytes memory aggSigByAggregator = s_aggregator.aggregateSignatures(userOps);
+
+        // check signature is same
+        assertEq(keccak256(aggSigByAggregator), keccak256(abi.encode(aggSig)));
+
+        // TESTING validateSignatures function of Aggreagtor
+        s_aggregator.validateSignatures(userOps, aggSigByAggregator);
+    }
+
+    function testAggregatorWithEntryPoint() public {
+        // iterations
+        uint256 iterations = vm.randomUint() % 5;
+
+        // create userOps array
+        PackedUserOperation[] memory userOps = new PackedUserOperation[](iterations);
+
+        // declare aggSig variable
+        BLS.G2Point memory aggSig = BLS.G2Point(
+            bytes32(""), bytes32(""), bytes32(""), bytes32(""), bytes32(""), bytes32(""), bytes32(""), bytes32("")
+        );
+
+        // for loop
+
+        for (uint256 i = 0; i < iterations; i++) {
+            // generate private key
+            uint256 privateKey = vm.randomUint();
+
+            // generate g1, g2, & bytes32 array;
+            BLS.G1Point[] memory g1 = new BLS.G1Point[](1);
+            BLS.G2Point[] memory g2 = new BLS.G2Point[](1);
+            bytes32[] memory scalars = new bytes32[](1);
+
+            g1[0] = G1_GENERATOR();
+            scalars[0] = bytes32(privateKey);
+
+            // generate public key
+            BLS.G1Point memory pubKey = BLS.msm(g1, scalars);
+
+            BLSAccount blsAccount = new BLSAccount(vm.randomAddress(), vm.randomAddress(), s_entryPoint, pubKey);
+            // create userOp
+            userOps[i] = PackedUserOperation({
+                sender: address(blsAccount),
+                nonce: 0,
+                initCode: bytes(""),
+                callData: bytes(""),
+                accountGasLimits: bytes32(uint256(100_000) << 128 | uint256(100_000)),
+                preVerificationGas: 0,
+                gasFees: bytes32(0),
+                paymasterAndData: bytes(""),
+                signature: bytes("")
+            });
+
+            // generate message
+            bytes memory message = encode(userOps[i]);
+
+            // generate signature
+            g2[0] = BLS.hashToG2(message);
+            BLS.G2Point memory signature = BLS.msm(g2, scalars);
+
+            // set signature
+            userOps[i].signature = abi.encode(signature);
+
+            // aggregate signature
+            aggSig = BLS.add(aggSig, signature);
+        }
+
+        // TESTING THROUGH ENTRYPOINT
+
+        IEntryPoint.UserOpsPerAggregator memory userOpPerAggregator = IEntryPoint.UserOpsPerAggregator({
+            userOps: userOps,
+            aggregator: s_aggregator,
+            signature: abi.encode(aggSig)
+        });
+        IEntryPoint.UserOpsPerAggregator[] memory userOpsPerAggregator = new IEntryPoint.UserOpsPerAggregator[](1);
+
+        userOpsPerAggregator[0] = userOpPerAggregator;
+        address beneficiary = makeAddr("beneficiary");
+        vm.deal(beneficiary, 10 ether);
+
+        vm.expectEmit(true, false, false, true, address(s_entryPoint));
+        emit IEntryPoint.SignatureAggregatorChanged(address(s_aggregator));
+
+        vm.prank(beneficiary);
+        s_entryPoint.handleAggregatedOps(userOpsPerAggregator, payable(beneficiary));
     }
 }
