@@ -196,6 +196,10 @@ contract AggregatorTest is Test {
             bytes32(""), bytes32(""), bytes32(""), bytes32(""), bytes32(""), bytes32(""), bytes32(""), bytes32("")
         );
 
+        // create receiver
+
+        address receiver = makeAddr("receiver");
+
         // for loop
 
         for (uint256 i = 0; i < iterations; i++) {
@@ -213,13 +217,20 @@ contract AggregatorTest is Test {
             // generate public key
             BLS.G1Point memory pubKey = BLS.msm(g1, scalars);
 
-            BLSAccount blsAccount = new BLSAccount(vm.randomAddress(), vm.randomAddress(), s_entryPoint, pubKey);
+            BLSAccount blsAccount = new BLSAccount(vm.randomAddress(), address(s_aggregator), s_entryPoint, pubKey);
+            vm.deal(address(blsAccount), 1 ether);
+            bytes memory callData = abi.encodeWithSelector(BLSAccount.execute.selector, receiver, 0.01 ether, "");
+
+            if (i == 0) {
+                callData = abi.encodeWithSelector(BLSAccount.execute.selector, receiver, 10 ether, "");
+            }
+
             // create userOp
             userOps[i] = PackedUserOperation({
                 sender: address(blsAccount),
                 nonce: 0,
                 initCode: bytes(""),
-                callData: bytes(""),
+                callData: callData,
                 accountGasLimits: bytes32(uint256(100_000) << 128 | uint256(100_000)),
                 preVerificationGas: 0,
                 gasFees: bytes32(0),
@@ -248,6 +259,7 @@ contract AggregatorTest is Test {
             aggregator: s_aggregator,
             signature: abi.encode(aggSig)
         });
+
         IEntryPoint.UserOpsPerAggregator[] memory userOpsPerAggregator = new IEntryPoint.UserOpsPerAggregator[](1);
 
         userOpsPerAggregator[0] = userOpPerAggregator;

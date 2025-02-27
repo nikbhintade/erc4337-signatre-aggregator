@@ -13,6 +13,8 @@ docs/
 # Dotenv file
 .env
 
-
 # Soldeer
 /dependencies
+
+# tests
+coverage

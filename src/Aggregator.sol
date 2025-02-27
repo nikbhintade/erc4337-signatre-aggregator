@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity 0.8.28;
 
-/**
- * Required Function:
- * - validateUserOpSignature: verify the signature in the userOp
- * - aggregateSignatures: Aggregated all the public keys of userOp from the userOps array
- * - validateSignatures: verify aggregated signature
- */
+
 import {IAggregator} from "account-abstraction/interfaces/IAggregator.sol";
 import {PackedUserOperation} from "account-abstraction/interfaces/PackedUserOperation.sol";
 import {UserOperationLib} from "account-abstraction/core/UserOperationLib.sol";
@@ -75,6 +70,7 @@ contract Aggregator is IAggregator {
             g1[i] = BLSAccount(userOps[i].sender).getPubKey();
             (g2[i]) = abi.decode(userOps[i].signature, (BLS.G2Point));
         }
+
         g1[len] = NEGATED_G1_GENERATOR;
         (g2[len]) = abi.decode(signature, (BLS.G2Point));
 
